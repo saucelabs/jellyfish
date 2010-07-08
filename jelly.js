@@ -3,6 +3,7 @@ var sys = require("sys")
   ,url = require("url")
   ,path = require('path')
   ,paperboy = require('./lib/paperboy')
+  ,ws = require('./lib/ws')
   ,WEBROOT = path.join(path.dirname(__filename), 'static')
   ,ADMIN = path.join(path.dirname(__filename), 'admin');
 
@@ -124,6 +125,16 @@ var requestHandler = function (req, res) {
       res.close();
     });
   }
+  else if (pathname.indexOf('jelly-net/proxy-command') != -1) {
+      sys.puts("Proxying a command");
+     // A hack used to proxy commands from 'head' browser
+     req.addListener("data", function(chunk) {
+             eval('var wave='+chunk);
+             var client = http.createClient(80, "http://localhost:8888");
+             var request = client.request('PUT', '/assign',
+                 {who: wave.who, what: wave.what});
+             });
+  }
   else {
     //Actual proxying happens here
     var c = http.createClient(uri.port, uri.hostname);
@@ -187,6 +198,21 @@ http.createServer(function (req, res) {
   if (pathname.indexOf("list") != -1) {
         finish(req, res, tentacles);
   }
+  //Serve up static files
+  else if (pathname.indexOf('jelly-serv') != -1) {
+    //if jelly-serv is involved, we rm the whole path except the file
+    //name and serve it from the static directory
+    var fname = req.url.split("/");
+    req.url = req.url.replace(pathname, "/" + fname[fname.length -1]);
+
+    paperboy
+    .deliver(WEBROOT, req, res)
+    .otherwise(function() {
+      res.writeHead(404, {'Content-Type': 'text/plain'});
+      res.write('Sorry, no paper this morning!');
+      res.close();
+    });
+  } 
   else {
     paperboy
     .deliver(ADMIN, req, res)
@@ -198,3 +224,28 @@ http.createServer(function (req, res) {
   }
 }).listen(8888);
 sys.puts('Service Server running at http://127.0.0.1:8888/');
+
+// Implement a WebSockets command interface
+ws.createServer(function (websocket) {
+        websocket.addListener("connect", function (resource) { 
+            // emitted after handshake
+            sys.debug("connect: " + resource);
+
+            // server closes connection after 10s, will also get "close" event
+            setTimeout(websocket.end, 900 * 1000); 
+            }).addListener("data", function (raw) { 
+                // handle incoming data
+                sys.debug("Raw data: " + raw);
+
+                data = JSON.parse(raw);
+                if (data.command = "assign") {
+                sys.debug("Attemping to assign via ws->http");
+                assign(data.who, data.what);
+
+                }
+                }).addListener("close", function () { 
+                    // emitted when server or client closes connection
+                    sys.debug("close");
+                    });
+        }).listen(8080);
+
